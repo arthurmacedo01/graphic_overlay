@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>IGC Relative Height Plot with Animation</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels"></script>
+  </head>
+  <body>
+    <input type="file" id="fileInput" />
+    <label for="ignoreSeconds">Ignore first n seconds: </label>
+    <input type="number" id="ignoreSeconds" value="0" min="0" />
+    <canvas id="completeChart" width="400" height="200"></canvas>
+    <canvas id="heightChart" width="400" height="200"></canvas>
+
+    <script>
+      document
+        .getElementById("fileInput")
+        .addEventListener("change", function (event) {
+          const file = event.target.files[0];
+          const reader = new FileReader();
+
+          reader.onload = function (event) {
+            const contents = event.target.result;
+            const { times, altitudes } = parseIGC(contents);
+            const relativeHeightData = calculateRelativeHeight(altitudes);
+            const timeDiffs = calculateTimeDiffs(times);
+
+            const ignoreSeconds = parseInt(
+              document.getElementById("ignoreSeconds").value,
+              10
+            );
+            const ignoreMilliseconds = ignoreSeconds * 1000;
+
+            let ignoredTime = 0;
+            let startIndex = 0;
+
+            while (
+              ignoredTime < ignoreMilliseconds &&
+              startIndex < timeDiffs.length
+            ) {
+              ignoredTime += timeDiffs[startIndex];
+              startIndex++;
+            }
+
+            const adjustedTimesAll = times.map((time, i) => {
+              const baseTime = times[0];
+              return timeToSeconds(time) - timeToSeconds(baseTime);
+            });
+
+            const adjustedTimesAnimated = adjustedTimesAll.slice(startIndex);
+
+            plotCompleteChart(adjustedTimesAll, relativeHeightData);
+            animatePlot(
+              adjustedTimesAnimated,
+              relativeHeightData.slice(startIndex),
+              timeDiffs.slice(startIndex)
+            );
+          };
+
+          reader.readAsText(file);
+        });
+
+      function parseIGC(contents) {
+        const lines = contents.split("\n");
+        const times = [];
+        const altitudes = [];
+
+        lines.forEach((line) => {
+          if (line.startsWith("B")) {
+            // 'B' lines contain the position and altitude data
+            const time = line.slice(1, 7); // HHMMSS format
+            const altitude = parseInt(line.slice(30, 35), 10); // Adjust indices based on actual IGC file format
+            times.push(time);
+            altitudes.push(altitude);
+          }
+        });
+
+        return { times, altitudes };
+      }
+
+      function calculateRelativeHeight(altitudeData) {
+        const landingAltitude = altitudeData[altitudeData.length - 1];
+        return altitudeData.map((altitude) => altitude - landingAltitude);
+      }
+
+      function calculateTimeDiffs(times) {
+        const timeDiffs = [];
+
+        function timeToSeconds(time) {
+          const hours = parseInt(time.slice(0, 2), 10);
+          const minutes = parseInt(time.slice(2, 4), 10);
+          const seconds = parseInt(time.slice(4, 6), 10);
+          return hours * 3600 + minutes * 60 + seconds;
+        }
+
+        for (let i = 1; i < times.length; i++) {
+          const prevTime = timeToSeconds(times[i - 1]);
+          const currTime = timeToSeconds(times[i]);
+          timeDiffs.push((currTime - prevTime) * 1000); // Convert to milliseconds
+        }
+
+        return timeDiffs;
+      }
+
+      function timeToSeconds(time) {
+        const hours = parseInt(time.slice(0, 2), 10);
+        const minutes = parseInt(time.slice(2, 4), 10);
+        const seconds = parseInt(time.slice(4, 6), 10);
+        return hours * 3600 + minutes * 60 + seconds;
+      }
+
+      function plotCompleteChart(times, data) {
+        const ctx = document.getElementById("completeChart").getContext("2d");
+        new Chart(ctx, {
+          type: "line",
+          data: {
+            labels: times,
+            datasets: [
+              {
+                label: "Relative Height (Complete)",
+                data: data,
+                borderColor: "rgba(75, 192, 192, 1)",
+                borderWidth: 1,
+                fill: false,
+                pointRadius: 3,
+                pointBackgroundColor: "rgba(75, 192, 192, 1)",
+                pointBorderColor: "rgba(75, 192, 192, 1)",
+              },
+            ],
+          },
+          options: {
+            plugins: {
+              legend: {
+                display: true,
+                position: "top",
+              },
+              datalabels: {
+                display: false,
+              },
+            },
+            scales: {
+              x: {
+                title: {
+                  display: true,
+                  text: "Time (s)",
+                },
+              },
+              y: {
+                beginAtZero: true,
+                title: {
+                  display: true,
+                  text: "Height (m)",
+                },
+                min: 0,
+              },
+            },
+          },
+        });
+      }
+
+      function animatePlot(times, data, timeDiffs) {
+        const ctx = document.getElementById("heightChart").getContext("2d");
+        const chart = new Chart(ctx, {
+          type: "line",
+          data: {
+            labels: [],
+            datasets: [
+              {
+                label: "Relative Height (Animated)",
+                data: [],
+                borderColor: "rgba(75, 192, 192, 1)",
+                borderWidth: 1,
+                fill: false,
+                pointRadius: [],
+                pointBackgroundColor: [],
+                pointBorderColor: [],
+              },
+            ],
+          },
+          options: {
+            layout: {
+              padding: {
+                top: 20,
+                right: 100,
+                bottom: 20,
+                left: 20,
+              },
+            },
+            plugins: {
+              legend: {
+                display: true,
+                position: "bottom",
+              },
+              datalabels: {
+                align: "right",
+                anchor: "end",
+                color: "rgba(75, 192, 192, 1)",
+                font: {
+                  weight: "bold",
+                  size: 18,
+                },
+                formatter: function (value, context) {
+                  return context.dataIndex === context.dataset.data.length - 1
+                    ? value + " m"
+                    : "";
+                },
+              },
+            },
+            scales: {
+              x: {
+                title: {
+                  display: true,
+                  text: "Time (s)",
+                },
+              },
+              y: {
+                beginAtZero: true,
+                title: {
+                  display: true,
+                  text: "Height (m)",
+                },
+                min: 0,
+              },
+            },
+          },
+          plugins: [ChartDataLabels],
+        });
+
+        let index = 0;
+
+        function addDataPoint() {
+          if (index < times.length) {
+            chart.data.labels.push(times[index]);
+            chart.data.datasets[0].data.push(data[index]);
+
+            // Default color and size for points
+            chart.data.datasets[0].pointBackgroundColor.push(
+              "rgba(75, 192, 192, 1)"
+            );
+            chart.data.datasets[0].pointBorderColor.push(
+              "rgba(75, 192, 192, 1)"
+            );
+            chart.data.datasets[0].pointRadius.push(3);
+
+            // Highlight the current point in red
+            if (index > 0) {
+              chart.data.datasets[0].pointBackgroundColor[index - 1] =
+                "rgba(75, 192, 192, 1)";
+              chart.data.datasets[0].pointBorderColor[index - 1] =
+                "rgba(75, 192, 192, 1)";
+              chart.data.datasets[0].pointRadius[index - 1] = 3;
+            }
+
+            chart.data.datasets[0].pointBackgroundColor[index] = "rgba(75, 192, 192, 1)";
+            chart.data.datasets[0].pointRadius[index] = 10;
+
+            chart.update();
+            index++;
+            if (index < times.length) {
+              setTimeout(addDataPoint, timeDiffs[index - 1]);
+            }
+          }
+        }
+
+        addDataPoint();
+      }
+    </script>
+  </body>
+</html>
