@@ -2,18 +2,38 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <title>IGC Relative Height Plot with Animation</title>
+    <title>
+      IGC Relative Height Plot and Ground Velocity Display with Animation
+    </title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels"></script>
+    <style>
+      .chart-container {
+        margin: 20px;
+      }
+      #velocityDisplay {
+        font-size: 24px;
+        color: rgba(75, 192, 192, 1);
+        font-weight: bold;
+      }
+    </style>
   </head>
   <body>
     <input type="file" id="fileInput" />
     <label for="ignoreSeconds">Ignore first n seconds: </label>
     <input type="number" id="ignoreSeconds" value="0" min="0" />
-    <canvas id="completeChart" width="400" height="200"></canvas>
-    <canvas id="heightChart" width="400" height="200"></canvas>
+    <button id="generateButton">Generate Charts</button>
+    <div class="chart-container">
+      <canvas id="completeChart" width="400" height="200"></canvas>
+    </div>
+    <div class="chart-container">
+      <canvas id="heightChart" width="400" height="200"></canvas>
+    </div>
+    <div id="velocityDisplay">Velocity: 0 km/h</div>
 
     <script>
+      let fileContents = "";
+
       document
         .getElementById("fileInput")
         .addEventListener("change", function (event) {
@@ -21,62 +41,103 @@
           const reader = new FileReader();
 
           reader.onload = function (event) {
-            const contents = event.target.result;
-            const { times, altitudes } = parseIGC(contents);
-            const relativeHeightData = calculateRelativeHeight(altitudes);
-            const timeDiffs = calculateTimeDiffs(times);
-
-            const ignoreSeconds = parseInt(
-              document.getElementById("ignoreSeconds").value,
-              10
-            );
-            const ignoreMilliseconds = ignoreSeconds * 1000;
-
-            let ignoredTime = 0;
-            let startIndex = 0;
-
-            while (
-              ignoredTime < ignoreMilliseconds &&
-              startIndex < timeDiffs.length
-            ) {
-              ignoredTime += timeDiffs[startIndex];
-              startIndex++;
-            }
-
-            const adjustedTimesAll = times.map((time, i) => {
-              const baseTime = times[0];
-              return timeToSeconds(time) - timeToSeconds(baseTime);
-            });
-
-            const adjustedTimesAnimated = adjustedTimesAll.slice(startIndex);
-
-            plotCompleteChart(adjustedTimesAll, relativeHeightData);
-            animatePlot(
-              adjustedTimesAnimated,
-              relativeHeightData.slice(startIndex),
-              timeDiffs.slice(startIndex)
-            );
+            fileContents = event.target.result;
           };
 
           reader.readAsText(file);
         });
 
+      document
+        .getElementById("generateButton")
+        .addEventListener("click", function () {
+          if (!fileContents) {
+            alert("Please select a file first.");
+            return;
+          }
+
+          const { times, latitudes, longitudes, altitudes } =
+            parseIGC(fileContents);
+          const relativeHeightData = calculateRelativeHeight(altitudes);
+          const timeDiffs = calculateTimeDiffs(times);
+          const velocities = calculateVelocities(
+            latitudes,
+            longitudes,
+            timeDiffs
+          );
+
+          const ignoreSeconds = parseInt(
+            document.getElementById("ignoreSeconds").value,
+            10
+          );
+          const ignoreMilliseconds = ignoreSeconds * 1000;
+
+          let ignoredTime = 0;
+          let startIndex = 0;
+
+          while (
+            ignoredTime < ignoreMilliseconds &&
+            startIndex < timeDiffs.length
+          ) {
+            ignoredTime += timeDiffs[startIndex];
+            startIndex++;
+          }
+
+          const adjustedTimesAll = times.map((time, i) => {
+            const baseTime = times[0];
+            return timeToSeconds(time) - timeToSeconds(baseTime);
+          });
+
+          const baseTimeAnimated = times[startIndex]; // New base time for relative calculation
+          const adjustedTimesAnimated = times.slice(startIndex).map((time) => {
+            return timeToSeconds(time) - timeToSeconds(baseTimeAnimated);
+          });
+
+          plotCompleteChart(adjustedTimesAll, relativeHeightData);
+          animatePlot(
+            adjustedTimesAnimated,
+            relativeHeightData.slice(startIndex),
+            timeDiffs.slice(startIndex),
+            velocities.slice(startIndex)
+          );
+        });
+
       function parseIGC(contents) {
         const lines = contents.split("\n");
         const times = [];
+        const latitudes = [];
+        const longitudes = [];
         const altitudes = [];
 
         lines.forEach((line) => {
           if (line.startsWith("B")) {
-            // 'B' lines contain the position and altitude data
             const time = line.slice(1, 7); // HHMMSS format
+            const latitude = convertToDecimalDegrees(
+              line.slice(7, 15),
+              line[15]
+            );
+            const longitude = convertToDecimalDegrees(
+              line.slice(16, 25),
+              line[25]
+            );
             const altitude = parseInt(line.slice(30, 35), 10); // Adjust indices based on actual IGC file format
             times.push(time);
+            latitudes.push(latitude);
+            longitudes.push(longitude);
             altitudes.push(altitude);
           }
         });
 
-        return { times, altitudes };
+        return { times, latitudes, longitudes, altitudes };
+      }
+
+      function convertToDecimalDegrees(coordinate, direction) {
+        const degrees = parseInt(coordinate.slice(0, 2), 10);
+        const minutes = parseFloat(coordinate.slice(2)) / 1000;
+        let decimalDegrees = degrees + minutes / 60;
+        if (direction === "S" || direction === "W") {
+          decimalDegrees = -decimalDegrees;
+        }
+        return decimalDegrees;
       }
 
       function calculateRelativeHeight(altitudeData) {
@@ -101,6 +162,39 @@
         }
 
         return timeDiffs;
+      }
+
+      function calculateVelocities(latitudes, longitudes, timeDiffs) {
+        const velocities = [];
+
+        function haversine(lat1, lon1, lat2, lon2) {
+          const R = 6371e3; // metres
+          const φ1 = (lat1 * Math.PI) / 180;
+          const φ2 = (lat2 * Math.PI) / 180;
+          const Δφ = ((lat2 - lat1) * Math.PI) / 180;
+          const Δλ = ((lon2 - lon1) * Math.PI) / 180;
+
+          const a =
+            Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+            Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+          const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+          return R * c; // in metres
+        }
+
+        for (let i = 1; i < latitudes.length; i++) {
+          const distance = haversine(
+            latitudes[i - 1],
+            longitudes[i - 1],
+            latitudes[i],
+            longitudes[i]
+          );
+          const timeDiffHours = timeDiffs[i - 1] / (1000 * 60 * 60); // Convert milliseconds to hours
+          const velocity = distance / 1000 / timeDiffHours; // km/h
+          velocities.push(velocity);
+        }
+
+        return velocities;
       }
 
       function timeToSeconds(time) {
@@ -129,7 +223,7 @@
               },
             ],
           },
-          options: {
+          options: {            
             plugins: {
               legend: {
                 display: true,
@@ -159,7 +253,7 @@
         });
       }
 
-      function animatePlot(times, data, timeDiffs) {
+      function animatePlot(times, data, timeDiffs, velocities) {
         const ctx = document.getElementById("heightChart").getContext("2d");
         const chart = new Chart(ctx, {
           type: "line",
@@ -182,7 +276,7 @@
             layout: {
               padding: {
                 top: 20,
-                right: 100,
+                right: 120,
                 bottom: 20,
                 left: 20,
               },
@@ -190,7 +284,7 @@
             plugins: {
               legend: {
                 display: true,
-                position: "bottom",
+                position: "top",
               },
               datalabels: {
                 align: "right",
@@ -243,7 +337,7 @@
             );
             chart.data.datasets[0].pointRadius.push(3);
 
-            // Highlight the current point in red
+            // Highlight the current point
             if (index > 0) {
               chart.data.datasets[0].pointBackgroundColor[index - 1] =
                 "rgba(75, 192, 192, 1)";
@@ -253,7 +347,15 @@
             }
 
             chart.data.datasets[0].pointBackgroundColor[index] = "rgba(75, 192, 192, 1)";
+            chart.data.datasets[0].pointBorderColor[index] = "rgba(75, 192, 192, 1)";
             chart.data.datasets[0].pointRadius[index] = 10;
+
+            // Update the velocity display
+            if (index < velocities.length) {
+              document.getElementById(
+                "velocityDisplay"
+              ).innerText = `Velocity: ${velocities[index].toFixed(2)} km/h`;
+            }
 
             chart.update();
             index++;
