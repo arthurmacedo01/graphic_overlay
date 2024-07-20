@@ -10,6 +10,8 @@
     <style>
       .chart-container {
         margin: 20px;
+        display: flex;
+        align-items: center;
       }
       #velocityDisplay {
         font-size: 24px;
@@ -24,12 +26,12 @@
     <input type="number" id="ignoreSeconds" value="0" min="0" />
     <button id="generateButton">Generate Charts</button>
     <div class="chart-container">
-      <canvas id="completeChart" width="400" height="200"></canvas>
+      <canvas id="completeChart"></canvas>
     </div>
     <div class="chart-container">
-      <canvas id="heightChart" width="400" height="200"></canvas>
+      <canvas id="heightChart"></canvas>
+      <div id="velocityDisplay">0 km/h</div>
     </div>
-    <div id="velocityDisplay">Velocity: 0 km/h</div>
 
     <script>
       let fileContents = "";
@@ -259,7 +261,7 @@
             labels: [],
             datasets: [
               {
-                label: "Relative Height (Animated)",
+                label: "Relative Height",
                 data: [],
                 borderColor: "rgba(75, 192, 192, 1)",
                 borderWidth: 1,
@@ -350,7 +352,7 @@
             if (index < velocities.length) {
               document.getElementById(
                 "velocityDisplay"
-              ).innerText = `Velocity: ${velocities[index].toFixed(2)} km/h`;
+              ).innerText = `${velocities[index].toFixed(2)} km/h`;
             }
 
             chart.update();
