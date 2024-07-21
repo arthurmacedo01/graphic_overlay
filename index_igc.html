@@ -29,6 +29,9 @@
       <canvas id="completeChart"></canvas>
     </div>
     <div class="chart-container">
+      <canvas id="velocityChart"></canvas>
+    </div>
+    <div class="chart-container">
       <canvas id="heightChart"></canvas>
       <div id="velocityDisplay">0 km/h</div>
     </div>
@@ -95,6 +98,7 @@
           });
 
           plotCompleteChart(adjustedTimesAll, relativeHeightData);
+          plotVelocityChart(adjustedTimesAll.slice(1), velocities); // Adjusted for the velocity chart
           animatePlot(
             adjustedTimesAnimated,
             relativeHeightData.slice(startIndex),
@@ -247,6 +251,53 @@
                   display: true,
                   text: "Height (m)",
                 }
+              },
+            },
+          },
+        });
+      }
+
+      function plotVelocityChart(times, velocities) {
+        const ctx = document.getElementById("velocityChart").getContext("2d");
+        new Chart(ctx, {
+          type: "line",
+          data: {
+            labels: times,
+            datasets: [
+              {
+                label: "Ground Velocity (Complete)",
+                data: velocities,
+                borderColor: "rgba(192, 75, 75, 1)",
+                borderWidth: 1,
+                fill: false,
+                pointRadius: 3,
+                pointBackgroundColor: "rgba(192, 75, 75, 1)",
+                pointBorderColor: "rgba(192, 75, 75, 1)",
+              },
+            ],
+          },
+          options: {
+            plugins: {
+              legend: {
+                display: true,
+                position: "top",
+              },
+              datalabels: {
+                display: false,
+              },
+            },
+            scales: {
+              x: {
+                title: {
+                  display: true,
+                  text: "Time (s)",
+                },
+              },
+              y: {
+                title: {
+                  display: true,
+                  text: "Velocity (km/h)",
+                },
               },
             },
           },

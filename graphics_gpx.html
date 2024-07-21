@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>
+      GPX Relative Height Plot and Ground Velocity Display with Animation
+    </title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels"></script>
+    <style>
+      body {
+        width: 300px;
+      }
+      .chart-container {
+        margin: 20px;
+        align-items: center;
+        width: 100%;
+        max-width: 100%;
+        height: auto;
+      }
+      canvas {
+        width: 100% !important;
+        height: auto !important;
+      }
+
+      .velocityDisplay {
+        font-size: 24px;
+        color: rgba(75, 192, 192, 1);
+        font-weight: bold;
+        text-align: center;
+        font-family: "Arial", sans-serif; /* Change 'Arial' to any font you prefer */
+      }
+      .velocityUnit{
+        font-size: 16px;
+      }
+    </style>
+  </head>
+  <body>
+    <input type="file" id="fileInput" />
+    <label for="ignoreSeconds">Ignore first n seconds: </label>
+    <input type="number" id="ignoreSeconds" value="0" min="0" />
+    <button id="generateButton">Generate Charts</button>
+    <div class="chart-container">
+      <canvas id="completeChart"></canvas>
+    </div>
+    <div class="chart-container">
+      <canvas id="velocityChart"></canvas>
+    </div>
+    <div class="velocityDisplay">
+      <span id="velocityValue">0</span>
+      <span class="velocityUnit">km/h</span>
+    </div>
+    <div class="chart-container">
+      <canvas id="heightChart"></canvas>
+    </div>
+
+    <script>
+      let fileContents = "";
+
+      document
+        .getElementById("fileInput")
+        .addEventListener("change", function (event) {
+          const file = event.target.files[0];
+          const reader = new FileReader();
+
+          reader.onload = function (event) {
+            fileContents = event.target.result;
+          };
+
+          reader.readAsText(file);
+        });
+
+      document
+        .getElementById("generateButton")
+        .addEventListener("click", function () {
+          if (!fileContents) {
+            alert("Please select a file first.");
+            return;
+          }
+
+          const { times, latitudes, longitudes, altitudes, velocities } =
+            parseGPX(fileContents);
+          const relativeHeightData = calculateRelativeHeight(altitudes);
+          const timeDiffs = calculateTimeDiffs(times);
+
+          const ignoreSeconds = parseInt(
+            document.getElementById("ignoreSeconds").value,
+            10
+          );
+          const ignoreMilliseconds = ignoreSeconds * 1000;
+
+          let ignoredTime = 0;
+          let startIndex = 0;
+
+          while (
+            ignoredTime < ignoreMilliseconds &&
+            startIndex < timeDiffs.length
+          ) {
+            ignoredTime += timeDiffs[startIndex];
+            startIndex++;
+          }
+
+          const adjustedTimesAll = times.map((time, i) => {
+            const baseTime = times[0];
+            return timeToSeconds(time) - timeToSeconds(baseTime);
+          });
+
+          const baseTimeAnimated = times[startIndex]; // New base time for relative calculation
+          const adjustedTimesAnimated = times.slice(startIndex).map((time) => {
+            return timeToSeconds(time) - timeToSeconds(baseTimeAnimated);
+          });
+
+          plotCompleteChart(adjustedTimesAll, relativeHeightData);
+          plotVelocityChart(adjustedTimesAll.slice(1), velocities); // Adjusted for the velocity chart
+          animatePlot(
+            adjustedTimesAnimated,
+            relativeHeightData.slice(startIndex),
+            timeDiffs.slice(startIndex),
+            velocities.slice(startIndex)
+          );
+        });
+
+      function parseGPX(contents) {
+        const parser = new DOMParser();
+        const xmlDoc = parser.parseFromString(contents, "application/xml");
+        const trkpts = xmlDoc.getElementsByTagName("trkpt");
+
+        const times = [];
+        const latitudes = [];
+        const longitudes = [];
+        const altitudes = [];
+        const velocities = [];
+
+        for (let i = 0; i < trkpts.length; i++) {
+          const trkpt = trkpts[i];
+          const time = trkpt.getElementsByTagName("time")[0].textContent;
+          const lat = parseFloat(trkpt.getAttribute("lat"));
+          const lon = parseFloat(trkpt.getAttribute("lon"));
+          const ele = parseFloat(
+            trkpt.getElementsByTagName("ele")[0].textContent
+          );
+          const speed =
+            parseFloat(trkpt.getElementsByTagName("speed")[0].textContent) *
+            3.6; // Convert from m/s to km/h
+
+          times.push(time);
+          latitudes.push(lat);
+          longitudes.push(lon);
+          altitudes.push(ele);
+          velocities.push(speed);
+        }
+
+        return { times, latitudes, longitudes, altitudes, velocities };
+      }
+
+      function calculateRelativeHeight(altitudeData) {
+        const landingAltitude = altitudeData[altitudeData.length - 1];
+        return altitudeData.map((altitude) => altitude - landingAltitude);
+      }
+
+      function calculateTimeDiffs(times) {
+        const timeDiffs = [];
+
+        function timeToSeconds(time) {
+          const date = new Date(time);
+          return date.getTime();
+        }
+
+        for (let i = 1; i < times.length; i++) {
+          const prevTime = timeToSeconds(times[i - 1]);
+          const currTime = timeToSeconds(times[i]);
+          timeDiffs.push(currTime - prevTime); // Difference in milliseconds
+        }
+
+        return timeDiffs;
+      }
+
+      function timeToSeconds(time) {
+        const date = new Date(time);
+        return date.getTime() / 1000;
+      }
+
+      function plotCompleteChart(times, data) {
+        const ctx = document.getElementById("completeChart").getContext("2d");
+        new Chart(ctx, {
+          type: "line",
+          data: {
+            labels: times,
+            datasets: [
+              {
+                label: "Relative Height (Complete)",
+                data: data,
+                borderColor: "rgba(75, 192, 192, 1)",
+                borderWidth: 1,
+                fill: false,
+                pointRadius: 3,
+                pointBackgroundColor: "rgba(75, 192, 192, 1)",
+                pointBorderColor: "rgba(75, 192, 192, 1)",
+              },
+            ],
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: {
+                display: true,
+                position: "top",
+              },
+              datalabels: {
+                display: false,
+              },
+            },
+            scales: {
+              x: {
+                title: {
+                  display: true,
+                  text: "Time (s)",
+                },
+              },
+              y: {
+                title: {
+                  display: true,
+                  text: "Height (m)",
+                },
+              },
+            },
+          },
+        });
+      }
+
+      function plotVelocityChart(times, velocities) {
+        const ctx = document.getElementById("velocityChart").getContext("2d");
+        new Chart(ctx, {
+          type: "line",
+          data: {
+            labels: times,
+            datasets: [
+              {
+                label: "Ground Velocity (Complete)",
+                data: velocities,
+                borderColor: "rgba(192, 75, 75, 1)",
+                borderWidth: 1,
+                fill: false,
+                pointRadius: 3,
+                pointBackgroundColor: "rgba(192, 75, 75, 1)",
+                pointBorderColor: "rgba(192, 75, 75, 1)",
+              },
+            ],
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: {
+                display: true,
+                position: "top",
+              },
+              datalabels: {
+                display: false,
+              },
+            },
+            scales: {
+              x: {
+                title: {
+                  display: true,
+                  text: "Time (s)",
+                },
+              },
+              y: {
+                title: {
+                  display: true,
+                  text: "Velocity (km/h)",
+                },
+              },
+            },
+          },
+        });
+      }
+
+      function animatePlot(times, data, timeDiffs, velocities) {
+        const ctx = document.getElementById("heightChart").getContext("2d");
+        const chart = new Chart(ctx, {
+          type: "line",
+          data: {
+            labels: [],
+            datasets: [
+              {
+                label: "Relative Height",
+                data: [],
+                borderColor: "rgba(75, 192, 192, 1)",
+                borderWidth: 1,
+                fill: false,
+                pointRadius: [],
+                pointBackgroundColor: [],
+                pointBorderColor: [],
+              },
+            ],
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            layout: {
+              padding: {
+                top: 20,
+                right: 60,
+                bottom: 20,
+                left: 20,
+              },
+            },
+            plugins: {
+              legend: {
+                display: false,
+                position: "top",
+              },
+              datalabels: {
+                align: "right",
+                anchor: "end",
+                color: "rgba(75, 192, 192, 1)",
+                font: {
+                  weight: "bold",
+                  size: 18,
+                },
+                formatter: function (value, context) {
+                  return context.dataIndex === context.dataset.data.length - 1
+                    ? value.toFixed(0) + " m"
+                    : "";
+                },
+              },
+            },
+            scales: {
+              x: {
+                title: {
+                  display: true,
+                  text: "Time (s)",
+                },
+              },
+              y: {
+                title: {
+                  display: true,
+                  text: "Height (m)",
+                },
+              },
+            },
+          },
+          plugins: [ChartDataLabels],
+        });
+
+        let index = 0;
+
+        function addDataPoint() {
+          if (index < times.length) {
+            chart.data.labels.push(times[index]);
+            chart.data.datasets[0].data.push(data[index]);
+
+            // Default color and size for points
+            chart.data.datasets[0].pointBackgroundColor.push(
+              "rgba(75, 192, 192, 1)"
+            );
+            chart.data.datasets[0].pointBorderColor.push(
+              "rgba(75, 192, 192, 1)"
+            );
+            chart.data.datasets[0].pointRadius.push(3);
+
+            // Highlight the current point
+            if (index > 0) {
+              chart.data.datasets[0].pointBackgroundColor[index - 1] =
+                "rgba(75, 192, 192, 1)";
+              chart.data.datasets[0].pointBorderColor[index - 1] =
+                "rgba(75, 192, 192, 1)";
+              chart.data.datasets[0].pointRadius[index - 1] = 3;
+            }
+
+            chart.data.datasets[0].pointBackgroundColor[index] =
+              "rgba(75, 192, 192, 1)";
+            chart.data.datasets[0].pointBorderColor[index] =
+              "rgba(75, 192, 192, 1)";
+            chart.data.datasets[0].pointRadius[index] = 10;
+
+            // Update the velocity display
+            if (index < velocities.length) {
+              document.getElementById(
+                "velocityValue"
+              ).innerText = `${velocities[index].toFixed(0)}`;
+            }
+
+            chart.update();
+            index++;
+            if (index < times.length) {
+              setTimeout(addDataPoint, timeDiffs[index - 1]);
+            }
+          }
+        }
+
+        addDataPoint();
+      }
+    </script>
+  </body>
+</html>
